@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dragon Strike">
+
+<title>Dragon Strike</title>
+
+<style>
+* {
+    box-sizing: border-box;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #050816;
+    font-family: Arial, sans-serif;
+}
+
+canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    touch-action: none;
+}
+
+#ui {
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    right: 15px;
+    display: flex;
+    justify-content: space-between;
+    color: white;
+    font-weight: bold;
+    font-size: 18px;
+    pointer-events: none;
+    text-shadow: 0 2px 5px black;
+}
+
+#startScreen,
+#gameOver {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background: radial-gradient(circle, #18254f, #050816 70%);
+    color: white;
+    text-align: center;
+    z-index: 10;
+}
+
+#gameOver {
+    display: none;
+}
+
+h1 {
+    font-size: clamp(45px, 12vw, 90px);
+    margin: 0 0 10px;
+    color: #ffcc33;
+    text-shadow: 0 0 25px #ff6600;
+}
+
+.subtitle {
+    font-size: 20px;
+    margin-bottom: 30px;
+}
+
+button {
+    border: none;
+    border-radius: 18px;
+    padding: 16px 35px;
+    font-size: 21px;
+    font-weight: bold;
+    color: white;
+    background: linear-gradient(135deg, #ff7b00, #e60000);
+    box-shadow: 0 8px 25px rgba(255,80,0,.45);
+}
+
+button:active {
+    transform: scale(.95);
+}
+
+#tip {
+    margin-top: 20px;
+    opacity: .75;
+    font-size: 14px;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="ui">
+    <div>❤️ <span id="health">100</span></div>
+    <div>⭐ <span id="score">0</span></div>
+    <div>🔥 Level <span id="level">1</span></div>
+</div>
+
+<div id="startScreen">
+    <h1>DRAGON STRIKE</h1>
+    <div class="subtitle">Defeat the dragons and survive!</div>
+    <button id="startButton">START GAME</button>
+    <div id="tip">Move your finger to control the hero</div>
+</div>
+
+<div id="gameOver">
+    <h1>GAME OVER</h1>
+    <div class="subtitle">Score: <span id="finalScore">0</span></div>
+    <button id="restartButton">PLAY AGAIN</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W, H;
+let running = false;
+let score = 0;
+let health = 100;
+let level = 1;
+let lastTime = 0;
+let spawnTimer = 0;
+let shootTimer = 0;
+
+const player = {
+    x: 0,
+    y: 0,
+    radius: 24,
+    targetX: 0,
+    targetY: 0
+};
+
+let bullets = [];
+let dragons = [];
+let particles = [];
+let stars = [];
+
+function resize() {
+    W = canvas.width = window.innerWidth * devicePixelRatio;
+    H = canvas.height = window.innerHeight * devicePixelRatio;
+
+    canvas.style.width = window.innerWidth + "px";
+    canvas.style.height = window.innerHeight + "px";
+
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+
+    W = window.innerWidth;
+    H = window.innerHeight;
+
+    if (!running) {
+        player.x = W / 2;
+        player.y = H - 100;
+        player.targetX = player.x;
+        player.targetY = player.y;
+    }
+
+    createStars();
+}
+
+window.addEventListener("resize", resize);
+
+function createStars() {
+    stars = [];
+
+    for (let i = 0; i < 100; i++) {
+        stars.push({
+            x: Math.random() * W,
+            y: Math.random() * H,
+            size: Math.random() * 2 + .5,
+            speed: Math.random() * 30 + 10
+        });
+    }
+}
+
+function resetGame() {
+    score = 0;
+    health = 100;
+    level = 1;
+
+    bullets = [];
+    dragons = [];
+    particles = [];
+
+    player.x = W / 2;
+    player.y = H - 100;
+    player.targetX = player.x;
+    player.targetY = player.y;
+
+    updateUI();
+}
+
+function updateUI() {
+    document.getElementById("health").textContent =
+        Math.max(0, Math.floor(health));
+
+    document.getElementById("score").textContent = score;
+
+    level = Math.floor(score / 100) + 1;
+
+    document.getElementById("level").textContent = level;
+}
+
+function startGame() {
+    resetGame();
+
+    document.getElementById("startScreen").style.display = "none";
+    document.getElementById("gameOver").style.display = "none";
+
+    running = true;
+    lastTime = performance.now();
+
+    requestAnimationFrame(gameLoop);
+}
+
+function endGame() {
+    running = false;
+
+    document.getElementById("finalScore").textContent = score;
+    document.getElementById("gameOver").style.display = "flex";
+}
+
+document.getElementById("startButton").onclick = startGame;
+document.getElementById("restartButton").onclick = startGame;
+
+
+// TOUCH / MOUSE CONTROL
+function movePlayer(x, y) {
+    player.targetX = x;
+    player.targetY = y;
+}
+
+canvas.addEventListener("pointermove", e => {
+    if (running) {
+        movePlayer(e.clientX, e.clientY);
+    }
+});
+
+canvas.addEventListener("pointerdown", e => {
+    if (running) {
+        movePlayer(e.clientX, e.clientY);
+    }
+});
+
+
+// CREATE DRAGON
+function spawnDragon() {
+
+    const size = 25 + Math.random() * 25;
+
+    dragons.push({
+        x: Math.random() * (W - 80) + 40,
+        y: -70,
+        size: size,
+        speed: 50 + Math.random() * 50 + level * 7,
+        hp: 1 + Math.floor(level / 3),
+        angle: 0,
+        wave: Math.random() * Math.PI * 2
+    });
+}
+
+
+// SHOOT
+function shoot() {
+
+    bullets.push({
+        x: player.x,
+        y: player.y - 25,
+        speed: 600
+    });
+}
+
+
+// PARTICLES
+function explosion(x, y, amount = 15) {
+
+    for (let i = 0; i < amount; i++) {
+
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 180 + 50;
+
+        particles.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1,
+            size: Math.random() * 5 + 2
+        });
+    }
+}
+
+
+// DRAW PLAYER
+function drawPlayer() {
+
+    ctx.save();
+
+    ctx.translate(player.x, player.y);
+
+    // glow
+    ctx.shadowBlur = 25;
+    ctx.shadowColor = "#00ccff";
+
+    // wings
+    ctx.fillStyle = "#168cff";
+
+    ctx.beginPath();
+    ctx.moveTo(-10, 0);
+    ctx.lineTo(-45, -20);
+    ctx.lineTo(-25, 10);
+    ctx.lineTo(-45, 25);
+    ctx.lineTo(-5, 15);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(45, -20);
+    ctx.lineTo(25, 10);
+    ctx.lineTo(45, 25);
+    ctx.lineTo(5, 15);
+    ctx.fill();
+
+    // body
+    ctx.fillStyle = "#00d9ff";
+
+    ctx.beginPath();
+    ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // core
+    ctx.fillStyle = "#ffffff";
+
+    ctx.beginPath();
+    ctx.arc(0, -3, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // cannon
+    ctx.fillStyle = "#ffdd44";
+
+    ctx.fillRect(-5, -40, 10, 22);
+
+    ctx.restore();
+}
+
+
+// DRAW DRAGON
+function drawDragon(d) {
+
+    ctx.save();
+
+    ctx.translate(d.x, d.y);
+
+    d.angle += 0.04;
+
+    const s = d.size;
+
+    ctx.shadowBlur = 18;
+    ctx.shadowColor = "#ff2200";
+
+    // wings
+    ctx.fillStyle = "#8b1a1a";
+
+    ctx.beginPath();
+    ctx.moveTo(-s * .2, 0);
+    ctx.lineTo(-s * 1.5, -s * .7);
+    ctx.lineTo(-s * 1.0, s * .3);
+    ctx.lineTo(-s * .3, s * .2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(s * .2, 0);
+    ctx.lineTo(s * 1.5, -s * .7);
+    ctx.lineTo(s * 1.0, s * .3);
+    ctx.lineTo(s * .3, s * .2);
+    ctx.fill();
+
+    // body
+    ctx.fillStyle = "#d42b20";
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, s * .65, s, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // head
+    ctx.fillStyle = "#ef3828";
+
+    ctx.beginPath();
+    ctx.arc(0, -s * .75, s * .55, 0, Math.PI * 2);
+    ctx.fill();
+
+    // horns
+    ctx.fillStyle = "#ffd43b";
+
+    ctx.beginPath();
+    ctx.moveTo(-s * .35, -s * 1.05);
+    ctx.lineTo(-s * .15, -s * 1.6);
+    ctx.lineTo(0, -s * 1.05);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(s * .35, -s * 1.05);
+    ctx.lineTo(s * .15, -s * 1.6);
+    ctx.lineTo(0, -s * 1.05);
+    ctx.fill();
+
+    // eyes
+    ctx.fillStyle = "#ffff00";
+
+    ctx.beginPath();
+    ctx.arc(-s * .2, -s * .82, 4, 0, Math.PI * 2);
+    ctx.arc(s * .2, -s * .82, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // fire
+    ctx.fillStyle = "#ff9d00";
+
+    ctx.beginPath();
+    ctx.moveTo(-5, s);
+    ctx.lineTo(0, s + 18 + Math.sin(d.angle) * 5);
+    ctx.lineTo(5, s);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+
+// DRAW BACKGROUND
+function drawBackground(dt) {
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, H);
+
+    gradient.addColorStop(0, "#030518");
+    gradient.addColorStop(0.5, "#0b1640");
+    gradient.addColorStop(1, "#180612");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, W, H);
+
+    // stars
+    ctx.fillStyle = "white";
+
+    for (const star of stars) {
+
+        star.y += star.speed * dt;
+
+        if (star.y > H) {
+            star.y = -5;
+            star.x = Math.random() * W;
+        }
+
+        ctx.globalAlpha = .4 + Math.random() * .6;
+
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+
+// GAME LOOP
+function gameLoop(time) {
+
+    if (!running) return;
+
+    const dt = Math.min((time - lastTime) / 1000, .033);
+    lastTime = time;
+
+    update(dt);
+    draw(dt);
+
+    requestAnimationFrame(gameLoop);
+}
+
+
+// UPDATE
+function update(dt) {
+
+    // Smooth player movement
+    player.x += (player.targetX - player.x) * 8 * dt;
+    player.y += (player.targetY - player.y) * 8 * dt;
+
+    // Keep player on screen
+    player.x = Math.max(35, Math.min(W - 35, player.x));
+    player.y = Math.max(80, Math.min(H - 35, player.y));
+
+
+    // Spawn dragons
+    spawnTimer += dt;
+
+    const spawnRate = Math.max(.25, 1.0 - level * .04);
+
+    if (spawnTimer > spawnRate) {
+        spawnTimer = 0;
+        spawnDragon();
+    }
+
+
+    // Automatic shooting
+    shootTimer += dt;
+
+    if (shootTimer > .28) {
+        shootTimer = 0;
+        shoot();
+    }
+
+
+    // Bullets
+    for (let i = bullets.length - 1; i >= 0; i--) {
+
+        const b = bullets[i];
+
+        b.y -= b.speed * dt;
+
+        if (b.y < -30) {
+            bullets.splice(i, 1);
+            continue;
+        }
+
+        // Bullet / dragon collision
+        for (let j = dragons.length - 1; j >= 0; j--) {
+
+            const d = dragons[j];
+
+            const dx = b.x - d.x;
+            const dy = b.y - d.y;
+
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < d.size) {
+
+                d.hp--;
+
+                bullets.splice(i, 1);
+
+                explosion(b.x, b.y, 5);
+
+                if (d.hp <= 0) {
+
+                    explosion(d.x, d.y, 25);
+
+                    dragons.splice(j, 1);
+
+                    score += 10;
+
+                    updateUI();
+                }
+
+                break;
+            }
+        }
+    }
+
+
+    // Dragons
+    for (let i = dragons.length - 1; i >= 0; i--) {
+
+        const d = dragons[i];
+
+        d.y += d.speed * dt;
+
+        d.x += Math.sin(d.y * .015 + d.wave) * 35 * dt;
+
+        // Dragon hits player
+        const dx = d.x - player.x;
+        const dy = d.y - player.y;
+
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < d.size + player.radius) {
+
+            health -= 20;
+
+            explosion(d.x, d.y, 20);
+
+            dragons.splice(i, 1);
+
+            updateUI();
+
+            if (health <= 0) {
+                endGame();
+                return;
+            }
+
+            continue;
+        }
+
+        // Dragon escapes
+        if (d.y > H + 80) {
+
+            health -= 5;
+
+            dragons.splice(i, 1);
+
+            updateUI();
+
+            if (health <= 0) {
+                endGame();
+                return;
+            }
+        }
+    }
+
+
+    // Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+
+        const p = particles[i];
+
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+
+        p.vy += 120 * dt;
+
+        p.life -= dt * 1.8;
+
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+}
+
+
+// DRAW
+function draw(dt) {
+
+    drawBackground(dt);
+
+    // Bullets
+    for (const b of bullets) {
+
+        ctx.save();
+
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = "#00ffff";
+
+        ctx.fillStyle = "#00ffff";
+
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+
+    // Dragons
+    for (const d of dragons) {
+        drawDragon(d);
+    }
+
+
+    // Player
+    drawPlayer();
+
+
+    // Particles
+    for (const p of particles) {
+
+        ctx.globalAlpha = Math.max(0, p.life);
+
+        ctx.fillStyle = "#ff9d00";
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+
+// INITIALIZE
+resize();
+
+</script>
+
+</body>
+</html>
